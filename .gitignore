@@ -1,0 +1,9 @@
+venv/
+.env
+temp/*.mp4
+temp/*.ogg
+temp/*.srt
+__pycache__/
+*.pyc
+bot.pid
+bot.log
