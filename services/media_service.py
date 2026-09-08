@@ -12,7 +12,7 @@ async def extract_audio(video_path: str, audio_path: str) -> bool:
     logger.info(f"Audio ajratish boshlandi: {video_path}")
 
     try:
-        process = (
+        args = (
             ffmpeg
             .input(video_path)
             .output(
@@ -27,7 +27,7 @@ async def extract_audio(video_path: str, audio_path: str) -> bool:
 
         proc = await asyncio.create_subprocess_exec(
             'ffmpeg',
-            *process[1:],
+            *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
