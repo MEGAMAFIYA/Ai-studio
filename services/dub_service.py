@@ -58,6 +58,7 @@ async def build_dubbed_audio(video_path: str, audio_path: str, translated_segmen
 
     dub_track = AudioSegment.silent(duration=total_duration_ms)
     temp_files = []
+    total_segments = len(translated_segments)
 
     for i, seg in enumerate(translated_segments):
         text = (seg.get('text') or "").strip()
@@ -67,9 +68,12 @@ async def build_dubbed_audio(video_path: str, audio_path: str, translated_segmen
         speaker = speaker_map.get(i, "SPEAKER_00")
         voice = voice_for_speaker(speaker, speaker_voice_map)
 
+        logger.info(f"[Dublyaj] segment {i + 1}/{total_segments} ({voice}) sintez qilinmoqda...")
+
         raw_clip = os.path.join(TEMP_DIR, f"{base_name}_seg{i}.mp3")
         ok = await synthesize_segment(text, voice, raw_clip)
         if not ok:
+            logger.warning(f"[Dublyaj] segment {i + 1}/{total_segments} o'tkazib yuborildi (TTS muvaffaqiyatsiz)")
             continue
         temp_files.append(raw_clip)
 

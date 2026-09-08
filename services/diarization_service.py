@@ -14,6 +14,7 @@ _encoder = None
 # birlashtiradi), kichikroq qiymat = ko'proq spiker (nozikroq ajratadi).
 CLUSTER_DISTANCE_THRESHOLD = 0.35
 MIN_SEGMENT_SECONDS = 0.3
+DIARIZATION_TIMEOUT_SECONDS = 180
 
 
 def _get_encoder():
@@ -77,7 +78,14 @@ async def diarize_segments(audio_path: str, segments: list) -> dict:
         return result
 
     try:
-        return await asyncio.to_thread(_run)
+        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=DIARIZATION_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        logger.error(
+            f"Diarizatsiya {DIARIZATION_TIMEOUT_SECONDS}s ichida tugamadi — "
+            f"standart bitta ovozga o'tildi. (Fon jarayoni baribir davom etadi, "
+            f"lekin natijasi endi ishlatilmaydi.)"
+        )
+        return {i: "SPEAKER_00" for i in range(len(segments))}
     except Exception as e:
         logger.error(f"Diarizatsiya xatosi: {e}", exc_info=True)
         return {i: "SPEAKER_00" for i in range(len(segments))}

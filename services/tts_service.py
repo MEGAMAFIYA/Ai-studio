@@ -1,9 +1,14 @@
 import os
 import logging
+import asyncio
 
 import edge_tts
 
 logger = logging.getLogger(__name__)
+
+# edge-tts o'zida timeout yo'q — tarmoq muammosi bo'lsa abadiy osilib qoladi.
+# Shuning uchun har bir chaqiruvni o'zimiz cheklaymiz.
+TTS_TIMEOUT_SECONDS = 25
 
 # DIQQAT: Bepul manbalarda (Microsoft Edge-TTS) o'zbek tilida hozircha
 # faqat SHU IKKITA tabiiy ovoz mavjud. "Ko'p xarakter" degani aslida shu
@@ -28,8 +33,14 @@ async def synthesize_segment(text: str, voice: str, out_path: str) -> bool:
         return False
     try:
         communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(out_path)
+        await asyncio.wait_for(communicate.save(out_path), timeout=TTS_TIMEOUT_SECONDS)
         return os.path.exists(out_path) and os.path.getsize(out_path) > 0
+    except asyncio.TimeoutError:
+        logger.error(
+            f"TTS vaqti tugadi ({voice}, {TTS_TIMEOUT_SECONDS}s): "
+            f"'{text[:40]}...' — server javob bermadi, segment o'tkazib yuborildi."
+        )
+        return False
     except Exception as e:
         logger.error(f"TTS xatosi ({voice}): {e}", exc_info=True)
         return False

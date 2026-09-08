@@ -9,7 +9,9 @@ from utils.helpers import (
     create_srt_file, 
     get_free_space_mb, 
     safe_edit_message,
-    sanitize_filename
+    sanitize_filename,
+    run_step,
+    StepError,
 )
 from services.media_service import extract_audio, mux_video_audio
 from services.ai_service import transcribe_audio, translate_text_to_uzbek
@@ -65,7 +67,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         file = await context.bot.get_file(video.file_id)
         video_path = os.path.join(TEMP_DIR, f"{safe_base_name}.mp4")
-        await file.download_to_drive(video_path)
+        await run_step(
+            file.download_to_drive(video_path),
+            "1/7 Video yuklash", timeout_seconds=300
+        )
 
         if not context.user_data.get('is_processing'):
             raise asyncio.CancelledError("Bekor qilindi.")
@@ -75,14 +80,20 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await safe_edit_message(status_msg, "🎬 2/7. Videodan audio ajratilmoqda...")
 
         audio_path = os.path.join(TEMP_DIR, f"{safe_base_name}.ogg")
-        await extract_audio(video_path, audio_path)
+        await run_step(
+            extract_audio(video_path, audio_path),
+            "2/7 Audio ajratish", timeout_seconds=180
+        )
 
         if not context.user_data.get('is_processing'):
             raise asyncio.CancelledError("Bekor qilindi.")
 
         await safe_edit_message(status_msg, "🎙️ 3/7. Nutq matnga aylantirilmoqda...")
 
-        segments = await transcribe_audio(audio_path)
+        segments = await run_step(
+            transcribe_audio(audio_path),
+            "3/7 Nutqni matnga aylantirish", timeout_seconds=300
+        )
 
         if not context.user_data.get('is_processing'):
             raise asyncio.CancelledError("Bekor qilindi.")
@@ -93,7 +104,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await safe_edit_message(status_msg, f"✅ Matn tayyor ({len(segments)} ta).\n🌐 4/7. Tarjima qilinmoqda...")
 
-        translated_segments = await translate_text_to_uzbek(segments)
+        translated_segments = await run_step(
+            translate_text_to_uzbek(segments),
+            "4/7 Tarjima qilish", timeout_seconds=180
+        )
 
         if not context.user_data.get('is_processing'):
             raise asyncio.CancelledError("Bekor qilindi.")
@@ -103,7 +117,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         srt_name = f"{safe_base_name}_uz.srt"
         srt_path = os.path.join(TEMP_DIR, srt_name)
 
-        success = await create_srt_file(translated_segments, srt_path)
+        success = await run_step(
+            create_srt_file(translated_segments, srt_path),
+            "5/7 Subtitr yaratish", timeout_seconds=60
+        )
 
         if not success:
             raise Exception("SRT yaratishda xatolik.")
@@ -117,7 +134,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "(bu bosqich eng uzoq davom etadi)"
         )
 
-        dubbed_audio_path = await build_dubbed_audio(video_path, audio_path, translated_segments, safe_base_name)
+        dubbed_audio_path = await run_step(
+            build_dubbed_audio(video_path, audio_path, translated_segments, safe_base_name),
+            "6/7 Dublyaj yaratish", timeout_seconds=900
+        )
 
         if not dubbed_audio_path:
             raise Exception("Dublyaj audiosini yaratib bo'lmadi.")
@@ -130,7 +150,10 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
         final_name = f"{safe_base_name}_uz_dublyaj.mp4"
         final_video_path = os.path.join(TEMP_DIR, final_name)
 
-        muxed = await mux_video_audio(video_path, dubbed_audio_path, final_video_path)
+        muxed = await run_step(
+            mux_video_audio(video_path, dubbed_audio_path, final_video_path),
+            "7/7 Video-audio birlashtirish", timeout_seconds=180
+        )
         if not muxed:
             raise Exception("Video va audioni birlashtirishda xatolik.")
 
@@ -157,6 +180,13 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     except asyncio.CancelledError:
         await safe_edit_message(status_msg, "❌ Jarayon bekor qilindi.")
+    except StepError as e:
+        logger.error(f"Pipeline to'xtadi — bosqich: {e.step_name} — {e.detail}")
+        await safe_edit_message(
+            status_msg,
+            f"❌ <b>{e.step_name}</b> bosqichida muammo:\n<code>{e.detail}</code>",
+            parse_mode="HTML"
+        )
     except Exception as e:
         logger.error(f"Xatolik: {e}", exc_info=True)
         await safe_edit_message(status_msg, f"❌ Xatolik:\n<code>{str(e)}</code>", parse_mode="HTML")

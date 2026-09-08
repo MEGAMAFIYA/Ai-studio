@@ -98,6 +98,36 @@ async def get_media_duration_ms(media_path: str) -> int:
         return 0
 
 
+class StepError(Exception):
+    """Pipeline bosqichlaridan biri muvaffaqiyatsiz yoki timeout bo'lganda ko'tariladi."""
+    def __init__(self, step_name: str, detail: str):
+        self.step_name = step_name
+        self.detail = detail
+        super().__init__(f"{step_name}: {detail}")
+
+
+async def run_step(coro, step_name: str, timeout_seconds: int):
+    """
+    Bitta pipeline bosqichini bajaradi: boshlanishi/tugashini logga yozadi,
+    va agar u belgilangan vaqtda tugamasa (osilib qolsa) yoki xato bersa,
+    aniq StepError bilan to'xtatadi — shunda foydalanuvchi qaysi bosqichda
+    va nima sababdan muammo bo'lganini aniq ko'radi.
+    """
+    logger.info(f"[BOSQICH BOSHLANDI] {step_name}")
+    try:
+        result = await asyncio.wait_for(coro, timeout=timeout_seconds)
+        logger.info(f"[BOSQICH TUGADI] {step_name}")
+        return result
+    except asyncio.TimeoutError:
+        logger.error(f"[BOSQICH OSILIB QOLDI] {step_name} — {timeout_seconds}s ichida javob kelmadi")
+        raise StepError(step_name, f"{timeout_seconds} soniyada tugamadi (osilib qoldi)")
+    except StepError:
+        raise
+    except Exception as e:
+        logger.error(f"[BOSQICH XATOLIGI] {step_name}: {e}", exc_info=True)
+        raise StepError(step_name, str(e))
+
+
 def sanitize_filename(filename: str) -> str:
     safe_name = re.sub(r'[\\/*?:"<>|]', "_", filename)
     safe_name = safe_name.strip()
