@@ -150,7 +150,7 @@ async def translate_text_to_uzbek(segments: list) -> list:
                         {"role": "system", "content": "You are a highly skilled Uzbek translator for movies. Output only the translated numbered list."},
                         {"role": "user", "content": prompt}
                     ],
-                    model="llama3-8b-8192",
+                    model="openai/gpt-oss-120b",
                     temperature=0.3,
                     max_tokens=2048
                 )

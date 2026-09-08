@@ -51,3 +51,30 @@ async def extract_audio(video_path: str, audio_path: str) -> bool:
     except Exception as e:
         logger.error(f"Kutilmagan xato (extract_audio): {e}", exc_info=True)
         raise
+
+
+async def mux_video_audio(video_path: str, audio_path: str, output_path: str) -> bool:
+    """Asl videoning tasvir qatlamini yangi (dublyaj qilingan) audio bilan birlashtiradi."""
+    if not os.path.exists(video_path) or not os.path.exists(audio_path):
+        return False
+
+    cmd = [
+        'ffmpeg', '-y',
+        '-i', video_path,
+        '-i', audio_path,
+        '-map', '0:v:0', '-map', '1:a:0',
+        '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+        '-shortest',
+        output_path
+    ]
+
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
+    _, stderr = await proc.communicate()
+
+    if proc.returncode != 0 or not os.path.exists(output_path):
+        logger.error(f"Video-audio birlashtirishda xato: {stderr.decode('utf-8', errors='ignore')}")
+        return False
+
+    return True

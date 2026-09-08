@@ -1,6 +1,7 @@
 import os
 import re
 import shutil
+import asyncio
 import logging
 import aiofiles
 from telegram import Message
@@ -78,6 +79,23 @@ async def safe_edit_message(message: Message, new_text: str, parse_mode: str = N
     except Exception as e:
         if "message is not modified" not in str(e).lower():
             logger.warning(f"Xabarni tahrirlashda xato: {e}")
+
+
+async def get_media_duration_ms(media_path: str) -> int:
+    """ffprobe orqali video/audio faylining davomiyligini millisekundda qaytaradi."""
+    try:
+        cmd = [
+            'ffprobe', '-v', 'error', '-show_entries', 'format=duration',
+            '-of', 'default=noprint_wrappers=1:nokey=1', media_path
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await proc.communicate()
+        return int(float(stdout.decode().strip()) * 1000)
+    except Exception as e:
+        logger.error(f"Media davomiyligini aniqlashda xato ({media_path}): {e}")
+        return 0
 
 
 def sanitize_filename(filename: str) -> str:
