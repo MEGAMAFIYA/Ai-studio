@@ -35,6 +35,20 @@ if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
         "o'zbekcha dublyaj (TTS) bosqichi ishlamaydi."
     )
 
+# Speaker diarization (pyannote.audio) uchun. HuggingFace'da
+# "pyannote/speaker-diarization-3.1" VA "pyannote/segmentation-3.0"
+# litsenziyasini qabul qilib, shu yerdan token oling:
+# https://huggingface.co/settings/tokens
+# IXTIYORIY: sozlanmasa, bot baribir ishga tushadi — faqat barcha
+# xarakterlar bitta ovozda gapiradi (diarizatsiya o'tkazib yuboriladi).
+HUGGINGFACE_TOKEN = os.getenv("HUGGINGFACE_TOKEN", "")
+
+if not HUGGINGFACE_TOKEN:
+    logger.warning(
+        "HUGGINGFACE_TOKEN sozlanmagan — diarizatsiya o'tkazib yuboriladi "
+        "(barcha xarakterlar bitta ovozda gapiradi)."
+    )
+
 try:
     ADMIN_ID = int(get_env_variable("ADMIN_ID"))
 except ValueError:
