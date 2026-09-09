@@ -24,8 +24,16 @@ GROQ_API_KEY = get_env_variable("GROQ_API_KEY")
 # edge-tts norasmiy usul bo'lgani uchun Microsoft tomonidan doimiy
 # bloklanib turadi). Bepul olish: portal.azure.com'da "Speech" resursi
 # yarating (F0 — bepul tarif, oyiga 500,000 belgigacha).
-AZURE_SPEECH_KEY = get_env_variable("AZURE_SPEECH_KEY")
-AZURE_SPEECH_REGION = get_env_variable("AZURE_SPEECH_REGION")
+# IXTIYORIY: sozlanmasa, bot baribir ishga tushadi — faqat dublyaj (TTS)
+# bosqichi ishlamaydi, subtitr/tarjima kabi boshqa funksiyalar ishlayveradi.
+AZURE_SPEECH_KEY = os.getenv("AZURE_SPEECH_KEY", "")
+AZURE_SPEECH_REGION = os.getenv("AZURE_SPEECH_REGION", "")
+
+if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
+    logger.warning(
+        "AZURE_SPEECH_KEY/AZURE_SPEECH_REGION sozlanmagan — "
+        "o'zbekcha dublyaj (TTS) bosqichi ishlamaydi."
+    )
 
 try:
     ADMIN_ID = int(get_env_variable("ADMIN_ID"))

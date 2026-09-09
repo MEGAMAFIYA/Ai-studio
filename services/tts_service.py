@@ -38,6 +38,12 @@ async def synthesize_segment(text: str, voice: str, out_path: str) -> bool:
     if not text.strip():
         return False
 
+    if not AZURE_SPEECH_KEY or not AZURE_SPEECH_REGION:
+        logger.error(
+            "TTS o'tkazib yuborildi: AZURE_SPEECH_KEY/AZURE_SPEECH_REGION sozlanmagan."
+        )
+        return False
+
     headers = {
         "Ocp-Apim-Subscription-Key": AZURE_SPEECH_KEY,
         "Content-Type": "application/ssml+xml",
