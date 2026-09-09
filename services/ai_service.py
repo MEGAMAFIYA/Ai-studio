@@ -4,6 +4,7 @@ import logging
 from groq import AsyncGroq, RateLimitError
 from config import GROQ_API_KEY, TEMP_DIR
 from utils.helpers import cleanup_files
+from services.ai_providers import iter_available_providers, call_chat_completion, PROVIDERS
 
 logger = logging.getLogger(__name__)
 
@@ -124,13 +125,13 @@ async def translate_text_to_uzbek(segments: list) -> list:
 
     translated_segments = []
     chunk_size = 15
-    
+
     for i in range(0, len(segments), chunk_size):
         chunk = segments[i:i + chunk_size]
-        
+
         texts_to_translate = [seg['text'] for seg in chunk]
         numbered_text = "\n".join([f"{idx+1}. {txt}" for idx, txt in enumerate(texts_to_translate)])
-        
+
         prompt = (
             "Sen professional kino tarjimonisan. Quyidagi raqamlangan matnlarni o'zbek tiliga tabiiy va ravon tarjima qil.\n"
             "Qoidalar:\n"
@@ -140,59 +141,48 @@ async def translate_text_to_uzbek(segments: list) -> list:
             f"Matnlar:\n{numbered_text}"
         )
 
-        max_retries = 3
-        retry_delay = 10
-        
-        for attempt in range(max_retries):
+        messages = [
+            {"role": "system", "content": "You are a highly skilled Uzbek translator for movies. Output only the translated numbered list."},
+            {"role": "user", "content": prompt}
+        ]
+
+        response_text = None
+        last_error = None
+
+        # Bir provayder/kalit ishlamasa (limit, xato, deprecated model),
+        # ro'yxatdagi keyingisiga avtomatik o'tiladi.
+        for provider_id, api_key in iter_available_providers():
             try:
-                chat_completion = await groq_client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": "You are a highly skilled Uzbek translator for movies. Output only the translated numbered list."},
-                        {"role": "user", "content": prompt}
-                    ],
-                    model="openai/gpt-oss-120b",
-                    temperature=0.3,
-                    max_tokens=2048
-                )
-                
-                response_text = chat_completion.choices[0].message.content.strip()
-                translated_lines = response_text.split('\n')
-                
-                for j, original_seg in enumerate(chunk):
-                    new_segment = original_seg.copy()
-                    matched_text = None
-                    expected_prefix = f"{j+1}."
-                    
-                    for line in translated_lines:
-                        clean_line = line.strip()
-                        if clean_line.startswith(expected_prefix):
-                            matched_text = clean_line[len(expected_prefix):].strip()
-                            break
-                    
-                    if matched_text:
-                        new_segment['text'] = matched_text
-                    else:
-                        new_segment['text'] = original_seg['text']
-                        
-                    translated_segments.append(new_segment)
+                response_text = await call_chat_completion(provider_id, api_key, messages)
                 break
-                
-            except RateLimitError:
-                if attempt < max_retries - 1:
-                    logger.warning(f"LLM Rate limit! {retry_delay}s kutilmoqda...")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2
-                else:
-                    for seg in chunk:
-                        error_seg = seg.copy()
-                        error_seg['text'] = seg['text'] + " [Limit]"
-                        translated_segments.append(error_seg)
             except Exception as e:
-                logger.error(f"Tarjima xatosi: {e}")
-                for seg in chunk:
-                    error_seg = seg.copy()
-                    error_seg['text'] = seg['text']
-                    translated_segments.append(error_seg)
-                break
+                last_error = e
+                label = PROVIDERS[provider_id]["label"]
+                logger.warning(f"[Tarjima] {label} ishlamadi ({i // chunk_size + 1}-bo'lak): {e}")
+                continue
+
+        if response_text is None:
+            logger.error(f"[Tarjima] Barcha provayderlar ishlamadi ({i // chunk_size + 1}-bo'lak): {last_error}")
+            for seg in chunk:
+                error_seg = seg.copy()
+                error_seg['text'] = seg['text'] + " [Tarjima xatosi]"
+                translated_segments.append(error_seg)
+            continue
+
+        translated_lines = response_text.split('\n')
+
+        for j, original_seg in enumerate(chunk):
+            new_segment = original_seg.copy()
+            matched_text = None
+            expected_prefix = f"{j+1}."
+
+            for line in translated_lines:
+                clean_line = line.strip()
+                if clean_line.startswith(expected_prefix):
+                    matched_text = clean_line[len(expected_prefix):].strip()
+                    break
+
+            new_segment['text'] = matched_text if matched_text else original_seg['text']
+            translated_segments.append(new_segment)
 
     return translated_segments

@@ -22,7 +22,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Menga kino (video) yuklang, men uni o'zbek tiliga tarjima qilib .srt subtitr qilib beraman.\n\n"
         f"Buyruqlar:\n"
         f"/cancel - Jarayonni bekor qilish\n"
-        f"/status - Tizim holatini ko'rish"
+        f"/status - Tizim holatini ko'rish\n"
+        f"/keys - AI tarjima kalitlarini boshqarish"
     )
     
     await update.message.reply_text(welcome_text, parse_mode="HTML")

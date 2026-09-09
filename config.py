@@ -20,6 +20,13 @@ def get_env_variable(var_name: str) -> str:
 TELEGRAM_BOT_TOKEN = get_env_variable("TELEGRAM_BOT_TOKEN")
 GROQ_API_KEY = get_env_variable("GROQ_API_KEY")
 
+# Uzbekcha dublyaj uchun rasmiy Azure Speech xizmati (edge-tts o'rniga —
+# edge-tts norasmiy usul bo'lgani uchun Microsoft tomonidan doimiy
+# bloklanib turadi). Bepul olish: portal.azure.com'da "Speech" resursi
+# yarating (F0 — bepul tarif, oyiga 500,000 belgigacha).
+AZURE_SPEECH_KEY = get_env_variable("AZURE_SPEECH_KEY")
+AZURE_SPEECH_REGION = get_env_variable("AZURE_SPEECH_REGION")
+
 try:
     ADMIN_ID = int(get_env_variable("ADMIN_ID"))
 except ValueError:
