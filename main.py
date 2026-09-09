@@ -1,5 +1,6 @@
 import os
 import logging
+from telegram import BotCommand
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, CallbackQueryHandler, filters
 from config import TELEGRAM_BOT_TOKEN, TEMP_DIR, logger
 from handlers.start_handler import start_command
@@ -9,8 +10,19 @@ from handlers.video_handler import handle_video
 from handlers.keys_handler import keys_command, keys_callback, handle_key_input
 from utils.helpers import force_cleanup_temp_dir, get_free_space_mb
 
+BOT_COMMANDS = [
+    BotCommand("start", "Bot haqida ma'lumot"),
+    BotCommand("status", "Tizim holatini ko'rish"),
+    BotCommand("keys", "AI tarjima kalitlarini boshqarish"),
+    BotCommand("cancel", "Joriy jarayonni bekor qilish"),
+]
+
 async def error_handler(update: object, context: object) -> None:
     logger.error(f"Xatolik yuz berdi: {context.error}", exc_info=context.error)
+
+async def post_init(application) -> None:
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    logger.info("Buyruqlar ro'yxati Telegram'ga o'rnatildi.")
 
 def main():
     logger.info("AI Studio bot ishga tushmoqda...")
@@ -24,7 +36,7 @@ def main():
         logger.info(f"Tizim tayyor. Bo'sh xotira: {free_space} MB")
     
     try:
-        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
         application.add_handler(CommandHandler("start", start_command))
         application.add_handler(CommandHandler("cancel", cancel_command))
