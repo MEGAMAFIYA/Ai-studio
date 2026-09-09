@@ -48,6 +48,14 @@ if not HUGGINGFACE_TOKEN:
         "HUGGINGFACE_TOKEN sozlanmagan — diarizatsiya o'tkazib yuboriladi "
         "(barcha xarakterlar bitta ovozda gapiradi)."
     )
+else:
+    masked = f"{HUGGINGFACE_TOKEN[:6]}...{HUGGINGFACE_TOKEN[-4:]}" if len(HUGGINGFACE_TOKEN) > 12 else "***"
+    logger.info(f"HUGGINGFACE_TOKEN aniqlandi: {masked}")
+    if not HUGGINGFACE_TOKEN.startswith("hf_"):
+        logger.warning(
+            "HUGGINGFACE_TOKEN 'hf_' bilan boshlanmayapti — noto'g'ri "
+            "nusxalangan bo'lishi mumkin (masalan qo'shimcha bo'shliq bilan)."
+        )
 
 try:
     ADMIN_ID = int(get_env_variable("ADMIN_ID"))
