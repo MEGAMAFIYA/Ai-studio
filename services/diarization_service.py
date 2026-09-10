@@ -1,9 +1,15 @@
 import asyncio
 import logging
+import gc
+import os
 
 from config import HUGGINGFACE_TOKEN
 
 logger = logging.getLogger(__name__)
+
+# Render kabi kichik RAMli instansiyalarda PyTorch parallel threadlari RAMni oshirmasin.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+os.environ.setdefault("MKL_NUM_THREADS", "1")
 
 _pipeline = None
 _pipeline_load_error = None
@@ -26,6 +32,12 @@ def _get_pipeline():
     logger.info(f"{TAG} pyannote modeli birinchi marta yuklanmoqda (bir necha daqiqa cho'zilishi mumkin)...")
     try:
         from pyannote.audio import Pipeline
+        import torch
+        torch.set_num_threads(1)
+        try:
+            torch.set_num_interop_threads(1)
+        except RuntimeError:
+            pass
 
         _pipeline = Pipeline.from_pretrained(
             "pyannote/speaker-diarization-3.1",
@@ -93,6 +105,17 @@ async def diarize_segments(audio_path: str, segments: list) -> dict:
         result = {i: _assign_speaker(seg, turns) for i, seg in enumerate(segments)}
         unique_speakers = len(set(result.values()))
         logger.info(f"{TAG} yakunlandi: {unique_speakers} ta noyob spiker aniqlandi.")
+        # Modelni doimiy RAMda ushlab turmaymiz: Render instansiyasi kichik bo'lsa,
+        # job tugagach xotirani qaytarish muhim. Keyingi video kerak bo'lsa qayta yuklanadi.
+        global _pipeline
+        _pipeline = None
+        gc.collect()
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
         return result
 
     try:
