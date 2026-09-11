@@ -81,11 +81,19 @@ def _assign_speaker(segment: dict, turns: list) -> str:
     return best_speaker or "SPEAKER_00"
 
 
-async def diarize_segments(audio_path: str, segments: list) -> dict:
+async def diarize_segments(audio_path: str, segments: list) -> tuple:
     """
     Kim qachon gapirganini pyannote orqali aniqlaydi, so'ng har bir Whisper
     segmentini eng mos spikerga bog'laydi.
-    Qaytaradi: {segment_index: "SPEAKER_XX"}
+
+    Qaytaradi: ({segment_index: "SPEAKER_XX"}, status)
+    status quyidagilardan biri bo'lishi mumkin — bu chaqiruvchiga (va oxir-oqibat
+    foydalanuvchiga) NEGA faqat bitta ovoz ishlatilganini aniq tushuntirish imkonini beradi:
+      - "ok"              : diarizatsiya muvaffaqiyatli, 2+ spiker topildi
+      - "single_speaker"  : diarizatsiya ishladi, lekin videoda haqiqatan ham bitta spiker bor
+      - "no_token"        : HUGGINGFACE_TOKEN sozlanmagan
+      - "timeout"         : model belgilangan vaqtda ulgurmadi
+      - "error"           : model yuklanmadi yoki ishlash vaqtida xato berdi
     """
     fallback = {i: "SPEAKER_00" for i in range(len(segments))}
 
@@ -94,7 +102,7 @@ async def diarize_segments(audio_path: str, segments: list) -> dict:
             f"{TAG} O'TKAZIB YUBORILDI: HUGGINGFACE_TOKEN sozlanmagan. "
             f"Barcha xarakterlar bitta ovozda gapiradi."
         )
-        return fallback
+        return fallback, "no_token"
 
     logger.info(f"{TAG} boshlandi ({len(segments)} ta segment uchun spiker aniqlanadi).")
 
@@ -116,7 +124,8 @@ async def diarize_segments(audio_path: str, segments: list) -> dict:
                 torch.cuda.empty_cache()
         except Exception:
             pass
-        return result
+        status = "ok" if unique_speakers > 1 else "single_speaker"
+        return result, status
 
     try:
         return await asyncio.wait_for(asyncio.to_thread(_run), timeout=DIARIZATION_TIMEOUT_SECONDS)
@@ -125,7 +134,7 @@ async def diarize_segments(audio_path: str, segments: list) -> dict:
             f"{TAG} MUVAFFAQIYATSIZ (TIMEOUT): {DIARIZATION_TIMEOUT_SECONDS}s ichida "
             f"tugamadi — standart bitta ovozga o'tildi."
         )
-        return fallback
+        return fallback, "timeout"
     except Exception as e:
         logger.error(f"{TAG} MUVAFFAQIYATSIZ (XATO): {e} — standart bitta ovozga o'tildi.")
-        return fallback
+        return fallback, "error"

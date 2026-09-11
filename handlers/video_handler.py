@@ -134,13 +134,19 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "(bu bosqich eng uzoq davom etadi)"
         )
 
-        dubbed_audio_path = await run_step(
+        dubbed_audio_path, diar_status = await run_step(
             build_dubbed_audio(video_path, audio_path, translated_segments, safe_base_name),
             "6/7 Dublyaj yaratish", timeout_seconds=900
         )
 
         if not dubbed_audio_path:
             raise Exception("Dublyaj audiosini yaratib bo'lmadi.")
+
+        diar_note = {
+            "no_token": "\n\nℹ️ Eslatma: HUGGINGFACE_TOKEN sozlanmagani uchun barcha xarakterlar bitta ovozda gapiradi.",
+            "timeout": "\n\nℹ️ Eslatma: spiker aniqlash vaqt bo'yicha ulgurmadi — barcha xarakterlar bitta ovozda.",
+            "error": "\n\nℹ️ Eslatma: spiker aniqlashda xatolik yuz berdi — barcha xarakterlar bitta ovozda (tafsilot uchun loglarni tekshiring).",
+        }.get(diar_status, "")
 
         if not context.user_data.get('is_processing'):
             raise asyncio.CancelledError("Bekor qilindi.")
@@ -161,7 +167,7 @@ async def handle_video(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_video(
                 video=video_file,
                 filename=final_name,
-                caption="✅ Tayyor! O'zbekcha dublyaj qilingan video."
+                caption="✅ Tayyor! O'zbekcha dublyaj qilingan video." + diar_note
             )
 
         with open(srt_path, 'rb') as srt_file:

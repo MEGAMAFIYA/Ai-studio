@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 import logging
 from groq import AsyncGroq, RateLimitError
@@ -136,6 +137,8 @@ async def translate_text_to_uzbek(segments: list) -> list:
             "Sen professional kino tarjimonisan. Quyidagi raqamlangan matnlarni o'zbek tiliga tabiiy va ravon tarjima qil.\n"
             "Qoidalar:\n"
             "- Har bir qatorni xuddi shunday raqam bilan boshla (1., 2., 3...).\n"
+            "- Har bir raqam faqat BITTA qatorda, ketma-ket, bo'lib-bo'lib yozilmasdan bo'lsin.\n"
+            "- Nechta matn berilsa, aynan shuncha qator qaytar — birortasini ham tashlab ketma yoki birlashtirma.\n"
             "- Faqat tarjimani qaytar, ortiqcha izoh yozma.\n"
             "- Kino dialoglariga mos uslubda tarjima qil.\n\n"
             f"Matnlar:\n{numbered_text}"
@@ -153,7 +156,12 @@ async def translate_text_to_uzbek(segments: list) -> list:
         # ro'yxatdagi keyingisiga avtomatik o'tiladi.
         for provider_id, api_key in iter_available_providers():
             try:
-                response_text = await call_chat_completion(provider_id, api_key, messages)
+                # max_tokens standart (2048) ba'zan 15 qatorlik uzun dialoglar
+                # uchun yetmay, javob yarmida kesilib qolardi — natijada oxirgi
+                # qatorlar "tarjima qilinmagan" holda asl tilda qolib ketardi.
+                response_text = await call_chat_completion(
+                    provider_id, api_key, messages, max_tokens=4096
+                )
                 break
             except Exception as e:
                 last_error = e
@@ -169,20 +177,60 @@ async def translate_text_to_uzbek(segments: list) -> list:
                 translated_segments.append(error_seg)
             continue
 
-        translated_lines = response_text.split('\n')
+        chunk_texts = _parse_numbered_translation(response_text, len(chunk))
 
         for j, original_seg in enumerate(chunk):
             new_segment = original_seg.copy()
-            matched_text = None
-            expected_prefix = f"{j+1}."
+            matched_text = chunk_texts.get(j)
 
-            for line in translated_lines:
-                clean_line = line.strip()
-                if clean_line.startswith(expected_prefix):
-                    matched_text = clean_line[len(expected_prefix):].strip()
-                    break
+            if not matched_text:
+                logger.warning(
+                    f"[Tarjima] {i // chunk_size + 1}-bo'lak, {j+1}-qator mos kelmadi — "
+                    f"asl matn saqlanib qolindi: {original_seg['text'][:60]!r}"
+                )
 
             new_segment['text'] = matched_text if matched_text else original_seg['text']
             translated_segments.append(new_segment)
 
     return translated_segments
+
+
+_NUMBERED_LINE_RE = re.compile(r'^\s*(\d+)\s*[\.\)\:\-]\s*(.*)$')
+
+
+def _parse_numbered_translation(response_text: str, expected_count: int) -> dict:
+    """
+    Modelning "1. tarjima" ko'rinishidagi javobini {0-based index: matn} qilib ajratadi.
+
+    Model har doim ham talab qilingan "1." formatida javob bermaydi (masalan "1)"
+    yozishi, ba'zi qatorlarni qo'shib yuborishi yoki raqamlarni chalkashtirishi mumkin).
+    Avval raqam bo'yicha moslashga harakat qilinadi; agar bu yetarlicha mos kelmasa,
+    qatorlar soni kutilganga teng bo'lsa tartib bo'yicha (pozitsion) moslashtiriladi —
+    shunda hech qanday qator "tarjima qilinmagan holda" asl tildan qolib ketmaydi.
+    """
+    raw_lines = [ln.strip() for ln in response_text.split('\n') if ln.strip()]
+
+    by_number = {}
+    for line in raw_lines:
+        m = _NUMBERED_LINE_RE.match(line)
+        if not m:
+            continue
+        num = int(m.group(1))
+        text = m.group(2).strip()
+        if 1 <= num <= expected_count and text:
+            # Agar bir xil raqam ikki marta uchrasa, birinchisini saqlaymiz.
+            by_number.setdefault(num - 1, text)
+
+    if len(by_number) >= expected_count:
+        return by_number
+
+    # Raqam bo'yicha moslashtirish to'liq bo'lmadi (masalan model "1)" yoki
+    # raqamsiz ro'yxat qaytargan). Qatorlar soni to'g'ri kelsa, tartib bo'yicha
+    # (index bo'yicha) moslashtiramiz — bu ko'pincha to'g'ri natija beradi.
+    stripped_lines = [_NUMBERED_LINE_RE.sub(r'\2', ln).strip() or ln for ln in raw_lines]
+    if len(stripped_lines) == expected_count:
+        return {idx: text for idx, text in enumerate(stripped_lines)}
+
+    # Ikkalasi ham mos kelmasa, faqat raqam orqali topilganlarni qaytaramiz —
+    # qolganlari chaqiruvchi tomonidan asl matn bilan to'ldiriladi.
+    return by_number

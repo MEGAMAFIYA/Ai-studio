@@ -13,6 +13,14 @@ logger = logging.getLogger(__name__)
 MIN_TEMPO, MAX_TEMPO = 0.75, 1.6
 ORIGINAL_VOLUME_REDUCTION_DB = 15
 
+# Tarjima matni asl gapdan uzunroq bo'lsa va tempo MAX_TEMPO bilan
+# cheklangani uchun yetarlicha tezlashtirilmasa, TTS klipi o'z vaqt
+# oralig'idan chiqib, navbatdagi repликаning ustiga "bosib" ketishi mumkin —
+# aynan shu holat tomoshabinga ovoz "kech" yoki notekis eshitiladi.
+# Ozgina (GRACE_OVERLAP_MS) bosib o'tishga yo'l qo'yamiz (tabiiy), undan
+# ortig'ini esa navbatdagi segment boshlanishidan oldin kesib tashlaymiz.
+GRACE_OVERLAP_MS = 250
+
 
 async def _ffprobe_duration_ms(path: str) -> int:
     """Audio durationini RAMga faylni yuklamasdan aniqlaydi."""
@@ -50,6 +58,25 @@ async def _fit_duration(clip_path: str, target_ms: int) -> str:
     )
     await proc.communicate()
     return fitted_path if proc.returncode == 0 and os.path.exists(fitted_path) else clip_path
+
+
+async def _trim_to_ms(clip_path: str, max_ms: int) -> str:
+    """Klipni berilgan davomiylikdan oshib ketmasligi uchun kesib qo'yadi.
+
+    MAX_TEMPO cheklovi tufayli klip hali ham juda uzun bo'lib qolsa, uni
+    navbatdagi segment boshlanishidan oldin to'xtatib, ovozlar bir-birining
+    ustiga tushib "kech" eshitilishining oldini oladi.
+    """
+    if max_ms <= 0 or not os.path.exists(clip_path):
+        return clip_path
+
+    trimmed_path = clip_path.rsplit(".", 1)[0] + "_trim.mp3"
+    cmd = ["ffmpeg", "-y", "-i", clip_path, "-t", str(max_ms / 1000), trimmed_path]
+    proc = await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL
+    )
+    await proc.communicate()
+    return trimmed_path if proc.returncode == 0 and os.path.exists(trimmed_path) else clip_path
 
 
 async def _mix_with_ffmpeg(video_path: str, audio_path: str, clips: list, output_path: str, total_duration_ms: int) -> bool:
@@ -99,15 +126,18 @@ async def _mix_with_ffmpeg(video_path: str, audio_path: str, clips: list, output
     return True
 
 
-async def build_dubbed_audio(video_path: str, audio_path: str, translated_segments: list, base_name: str) -> str:
-    """Diarizatsiya + Azure TTS + RAM-tejamkor ffmpeg mixing."""
-    speaker_map = await diarize_segments(audio_path, translated_segments)
+async def build_dubbed_audio(video_path: str, audio_path: str, translated_segments: list, base_name: str) -> tuple:
+    """Diarizatsiya + Azure TTS + RAM-tejamkor ffmpeg mixing.
+
+    Qaytaradi: (dublyaj_audio_yo'li yoki None, diarizatsiya_statusi)
+    """
+    speaker_map, diar_status = await diarize_segments(audio_path, translated_segments)
     speaker_voice_map = {}
 
     total_duration_ms = await get_media_duration_ms(video_path)
     if total_duration_ms <= 0:
         logger.error("Video davomiyligini aniqlab bo'lmadi, dublyaj to'xtatildi.")
-        return None
+        return None, diar_status
 
     temp_files = []
     clips = []
@@ -130,18 +160,41 @@ async def build_dubbed_audio(video_path: str, audio_path: str, translated_segmen
                 continue
             temp_files.append(raw_clip)
 
+            seg_start_ms = max(0, int(seg["start"] * 1000))
             target_ms = int((seg["end"] - seg["start"]) * 1000)
             fitted_clip = await _fit_duration(raw_clip, target_ms)
             if fitted_clip != raw_clip:
                 temp_files.append(fitted_clip)
 
+            # Navbatdagi segment boshlanishigacha (yoki video oxirigacha) qancha
+            # "joy" borligini hisoblab, klip undan ortiq bo'lsa kesib qo'yamiz —
+            # aks holda tarjima uzun bo'lganda ovoz keyingi replikaning ustiga
+            # chiqib, "kech" yoki chalkash eshitiladi.
+            if i + 1 < total_segments:
+                next_start_ms = max(0, int(translated_segments[i + 1]["start"] * 1000))
+            else:
+                next_start_ms = total_duration_ms
+            available_ms = max(0, next_start_ms - seg_start_ms) + GRACE_OVERLAP_MS
+
+            fitted_duration_ms = await _ffprobe_duration_ms(fitted_clip)
+            if available_ms > 0 and fitted_duration_ms > available_ms:
+                trimmed_clip = await _trim_to_ms(fitted_clip, available_ms)
+                if trimmed_clip != fitted_clip:
+                    temp_files.append(trimmed_clip)
+                    logger.warning(
+                        "[Dublyaj] segment %s/%s: tarjima juda uzun, %sms dan %sms ga qisqartirildi "
+                        "(navbatdagi repika bilan to'qnashmasligi uchun)",
+                        i + 1, total_segments, fitted_duration_ms, available_ms,
+                    )
+                fitted_clip = trimmed_clip
+
             if os.path.exists(fitted_clip):
-                clips.append((fitted_clip, max(0, int(seg["start"] * 1000))))
+                clips.append((fitted_clip, seg_start_ms))
 
         mixed_path = os.path.join(TEMP_DIR, f"{base_name}_dubbed_audio.wav")
         ok = await _mix_with_ffmpeg(video_path, audio_path, clips, mixed_path, total_duration_ms)
         if not ok:
-            return None
-        return mixed_path
+            return None, diar_status
+        return mixed_path, diar_status
     finally:
         await cleanup_files(*temp_files)
