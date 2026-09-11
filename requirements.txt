@@ -8,6 +8,12 @@ ffmpeg-python==0.2.0
 aiohttp==3.9.3
 pyannote.audio==3.3.2
 huggingface_hub==0.24.6
+# pyannote.audio 3.3.2 ichidagi segmentation/mixins.py fayli
+# matplotlib.pyplot'ni SHARTSIZ import qiladi (grafik chizish uchun
+# ishlatilmasa ham) — shu sabab bu bo'lmasa "ModuleNotFoundError:
+# No module named 'matplotlib'" bilan diarizatsiya butunlay ishlamay
+# qoladi va bot avtomatik bitta ovozga o'tib ketadi.
+matplotlib==3.9.2
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch==2.4.1+cpu
 torchaudio==2.4.1+cpu

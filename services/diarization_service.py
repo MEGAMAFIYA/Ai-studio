@@ -52,7 +52,9 @@ def _get_pipeline():
             f"(1) HUGGINGFACE_TOKEN noto'g'ri/eskirgan, "
             f"(2) huggingface.co/pyannote/speaker-diarization-3.1 yoki "
             f"huggingface.co/pyannote/segmentation-3.0 sahifasida "
-            f"'Agree and access repository' bosilmagan. Xato: {e}",
+            f"'Agree and access repository' bosilmagan, "
+            f"(3) requirements.txt'da kerakli kutubxona (masalan matplotlib) "
+            f"yetishmayapti. Xato: {e}",
             exc_info=True
         )
         raise
